@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#16181d"/>
+  <!-- 箱体：代表需求箱 -->
+  <path d="M14 24 L32 15 L50 24 L50 45 L32 54 L14 45 Z"
+        fill="none" stroke="#5b8cff" stroke-width="3" stroke-linejoin="round"/>
+  <!-- 箱盖分缝 -->
+  <path d="M14 24 L32 33 L50 24" fill="none" stroke="#5b8cff" stroke-width="2.4"
+        stroke-linejoin="round" opacity=".65"/>
+  <!-- 待处理的小勾：代表已收件 -->
+  <path d="M25 39 L30 44 L40 33" fill="none" stroke="#39d98a" stroke-width="3.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
