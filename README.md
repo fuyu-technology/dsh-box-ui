@@ -11,8 +11,11 @@ DeepSeek Harness 插件：把留言箱搬进 DSH 设置页。装上以后左侧�
 - 回复
 - 删除
 - 新建
+- **一键清空**：可只删「已处理 / 不处理」这些已结束的，或连未处理的一起全清
 
 数据存在 `message-box.json`，与 QQ 桥接共用——桥接那边写入的留言，这里直接就能看到。
+
+清空前 box-server 会自动把当前数据备份到 `state/box-backup-<时间>.json`（保留最近 20 份），删错了还能找回。
 
 ## 安装
 
@@ -60,6 +63,7 @@ dsh plugin --profile web add link:/path/to/dsh-box-ui
 | POST | `/dsh-box/reply` | 回复 |
 | POST | `/dsh-box/remove` | 删除 |
 | POST | `/dsh-box/new` | 新建 |
+| POST | `/dsh-box/clear` | 批量清空；带 `receipt` 只清该状态，不带则全清，需 `confirm: true` |
 
 ## 许可
 
