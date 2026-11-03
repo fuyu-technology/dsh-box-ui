@@ -1,12 +1,6 @@
 {
   "meta": {
     "title": "Requirement Box",
-    "description": "Triage the shared message box: change receipts, reply, remove or create items. Data lives in message-box.json, shared with the QQ bridge. Maker: 蝠羽科技"
+    "description": "Triage the shared message box: change receipts, reply, remove, create, and bulk-clear. Data lives in message-box.json, shared with the QQ bridge. Maker: 蝠羽科技"
   }
 }
-
-
-
-
-
-
