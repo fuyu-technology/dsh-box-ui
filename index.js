@@ -158,6 +158,17 @@ function apply(ctx) {
     }
   }))
 
+  // 一键清空（转发到 box-server 的 /api/box/clear）
+  disposers.push(webServer.register({
+    kind: 'exact',
+    path: `${API_BASE}/clear`,
+    handler: async (req, res) => {
+      const body = await readBody(req)
+      const r = await forward('POST', '/api/box/clear', body)
+      sendJson(res, r.status, r.json)
+    }
+  }))
+
   // 新建一条
   disposers.push(webServer.register({
     kind: 'exact',

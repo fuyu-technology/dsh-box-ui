@@ -265,6 +265,46 @@ window.__ModuleLoader__.load({
         })
       }
 
+      // 一键清空：服务端会自动备份到 state/box-backup-*.json
+      // 分两档：只清「已结束」（done + wontfix） / 全部清空
+      const clearAll = async (scope) => {
+        const tip = scope === 'finished'
+          ? '将删除所有「已处理」和「不处理」的留言，保留未处理的。\n\n服务端会自动备份。确定？'
+          : '⚠️ 将删除需求箱里【全部】留言，包括未处理的。\n\n服务端会自动备份，但仍请确认。'
+        if (!window.confirm(tip)) return
+        if (scope === 'all' && !window.confirm('最后确认：真的全部清空？')) return
+        try {
+          let removed = 0
+          let remaining = 0
+          let backup = null
+          if (scope === 'finished') {
+            for (const receipt of ['done', 'wontfix']) {
+              const out = await fetchJson('/clear', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ confirm: true, receipt })
+              })
+              removed += out?.removed || 0
+              remaining = out?.remaining ?? remaining
+              backup = out?.backup || backup
+            }
+          } else {
+            const out = await fetchJson('/clear', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ confirm: true })
+            })
+            removed = out?.removed || 0
+            remaining = out?.remaining ?? 0
+            backup = out?.backup || null
+          }
+          setToast({ ok: true, text: `已清空 ${removed} 条，剩余 ${remaining} 条${backup ? `（备份 ${backup}）` : ''}` })
+          await load()
+        } catch (e) {
+          setToast({ ok: false, text: `清空失败：${e?.message || e}` })
+        }
+      }
+
       if (loading) {
         return h('div', { className: 'bx-root' },
           h('style', null, STYLE),
@@ -293,6 +333,16 @@ window.__ModuleLoader__.load({
           h('span', { className: 'bx-maker' }, `制作方：${MAKER}`),
           h('div', { className: 'bx-head-right' },
             h('button', { className: 'bx-btn', disabled: busy, onClick: () => load() }, '刷新'),
+            h('button', {
+              className: 'bx-btn tiny danger', disabled: busy,
+              onClick: () => clearAll('finished'),
+              title: '只清「已处理」「不处理」，保留未处理'
+            }, '清空已结束'),
+            h('button', {
+              className: 'bx-btn tiny danger', disabled: busy,
+              onClick: () => clearAll('all'),
+              title: '清空全部留言（服务端会先备份）'
+            }, '全部清空'),
             h('button', {
               className: 'bx-btn primary', disabled: busy,
               onClick: () => setShowForm((v) => !v)
