@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "DeepSeek Harness 插件：设置页里的留言箱——查看条目、改回执、回复、删除与新建。 | DSH plugin: a triage inbox in the settings page — view, acknowledge, reply, remove and create items.",
   "author": "蝠羽科技",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "keywords": [
     "dsh",
@@ -23,6 +23,8 @@
     "./icon": "./icon.svg"
   },
   "files": [
+    "LICENSE",
+    "NOTICE",
     "index.js",
     "client.js",
     "cordis.patch.yml",
