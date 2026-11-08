@@ -17,25 +17,6 @@
 // 详见 LICENSE 与 NOTICE。
 //
 
-// dsh-box-ui
-// Copyright 2026 蝠羽科技 (fuyu-technology)  —  https://github.com/fuyu-technology
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// 允许二次修改与再分发，但必须保留上述署名与版权声明，不得删除或改写。
-// 详见 LICENSE 与 NOTICE。
-//
-
 // dsh-box-ui · 宿主侧
 //
 // 职责：把「需求箱」本地服务（box-server，127.0.0.1:3200）的数据暴露成 DSH 的 HTTP API，
@@ -203,6 +184,55 @@ function apply(ctx) {
     handler: async (req, res) => {
       const body = await readBody(req)
       const r = await forward('POST', '/api/box/clear', body)
+      sendJson(res, r.status, r.json)
+    }
+  }))
+
+  // 分级通知：读取配置
+  disposers.push(webServer.register({
+    kind: 'exact',
+    path: `${API_BASE}/notify/config`,
+    handler: async (req, res) => {
+      // 同一路径承担读（GET）与写（POST，保存设置）
+      if (req.method === 'GET') {
+        const r = await forward('GET', '/api/notify/config')
+        sendJson(res, r.status, r.json)
+        return
+      }
+      const body = await readBody(req)
+      const r = await forward('POST', '/api/notify/config', body)
+      sendJson(res, r.status, r.json)
+    }
+  }))
+
+  // 分级通知：发送一条测试
+  disposers.push(webServer.register({
+    kind: 'exact',
+    path: `${API_BASE}/notify/test`,
+    handler: async (req, res) => {
+      const body = await readBody(req)
+      const r = await forward('POST', '/api/notify/test', body)
+      sendJson(res, r.status, r.json)
+    }
+  }))
+
+  // 分级通知：语音试听（只出声，不建需求、不弹通知）
+  disposers.push(webServer.register({
+    kind: 'exact',
+    path: `${API_BASE}/notify/speech/test`,
+    handler: async (req, res) => {
+      const body = await readBody(req)
+      const r = await forward('POST', '/api/notify/speech/test', body)
+      sendJson(res, r.status, r.json)
+    }
+  }))
+
+  // 分级通知：最近日志
+  disposers.push(webServer.register({
+    kind: 'exact',
+    path: `${API_BASE}/notify/log`,
+    handler: async (req, res) => {
+      const r = await forward('GET', '/api/notify/log')
       sendJson(res, r.status, r.json)
     }
   }))
