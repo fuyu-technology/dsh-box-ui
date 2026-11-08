@@ -1,4 +1,5 @@
 // dshbox:// 协议处理器（由 notify-action.vbs 以隐藏窗口拉起，不闪控制台）
+// Copyright 2026 蝠羽科技 (fuyu-technology)  —  https://github.com/fuyu-technology
 //   dshbox://status?item=<id>&to=accepted|doing|done  → 改需求状态（不打开页面）
 //   dshbox://open?item=<id>#reply                     → 打开该需求的回复区
 import http from 'node:http'

@@ -1,3 +1,4 @@
+' Copyright 2026 蝠羽科技 (fuyu-technology)  —  https://github.com/fuyu-technology
 Option Explicit
 Dim a, node, url, script, sh
 Set a = WScript.Arguments

@@ -1,4 +1,5 @@
 // 需求箱 · 分级系统通知
+// Copyright 2026 蝠羽科技 (fuyu-technology)  —  https://github.com/fuyu-technology
 //
 // 作用：监听 message-box.json 里的新条目，按「紧急 / 重要 / 普通 / 低」四个等级
 // 用 Windows 系统能力提醒用户。配置存 state/notify-config.json，改完立即生效。

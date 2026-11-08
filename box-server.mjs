@@ -1,4 +1,5 @@
 // 需求箱 · 独立控制页（单独网址）
+// Copyright 2026 蝠羽科技 (fuyu-technology)  —  https://github.com/fuyu-technology
 // 打开：http://127.0.0.1:3200/?token=<state/box-token 里的值>
 // 数据与 qq-bridge 共用：D:\大肥鱼\qq-bridge\state\message-box.json
 import http from 'node:http'
