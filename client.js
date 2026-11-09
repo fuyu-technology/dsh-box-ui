@@ -562,7 +562,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'bx-sub' }, '城市'),
               h('input', {
                 className: 'bx-input', style: { flex: '0 0 160px', minWidth: '120px' },
-                placeholder: '留空 = 按 IP 自动定位',
+                placeholder: '留空 = 按 IP 自动定位；填了就用手填，如 合肥 / 安徽合肥',
                 value: notify.weather?.city || '',
                 onChange: (e) => patchWeather({ city: e.target.value })
               }),

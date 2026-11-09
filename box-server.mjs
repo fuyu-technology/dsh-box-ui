@@ -542,7 +542,7 @@ function renderNotify(logText){
     '<span>天气</span>' +
     '<label><input type="checkbox" id="cfg-wx" '+(wx.enabled!==false?'checked':'')+'> 通知里附带实时天气（温度+状况+插图）</label>' +
     '<span>城市</span>' +
-    '<input id="cfg-wx-city" placeholder="留空 = 按 IP 自动定位" value="'+esc(wx.city||'')+'" style="width:170px">' +
+    '<input id="cfg-wx-city" placeholder="留空 = 按 IP 自动定位；填了就用手填，如 合肥 / 安徽合肥" value="'+esc(wx.city||'')+'" style="width:240px">' +
     '<span class="muted">免密钥接口；取不到天气也照常弹通知</span>';
   // ── 语音广播 ──────────────────────────────────────────────────
   var sp = NCFG.speech || {};

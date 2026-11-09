@@ -892,13 +892,74 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
   }
 
   // ── 天气：定位 → 查天气，全程静默降级 ──────────────────────────
+  // 手动城市的省份前缀（长的放前面，避免「内蒙古」被「内蒙」之类截断）
+  const PROVINCE_PREFIX = [
+    '内蒙古', '黑龙江', '香港', '澳门',
+    '河北', '山西', '辽宁', '吉林', '江苏', '浙江', '安徽', '福建', '江西', '山东',
+    '河南', '湖北', '湖南', '广东', '海南', '四川', '贵州', '云南', '陕西', '甘肃',
+    '青海', '台湾', '广西', '西藏', '宁夏', '新疆'
+  ] // 直辖市不在此列：只去掉末尾「市」，避免「北京朝阳」被拆成「朝阳」
+  /** 「安徽合肥」/「合肥市」/「安徽省合肥市」→「合肥」；直辖市不拆前缀（「北京朝阳」不能变「朝阳」） */
+  function normalizeCityName(raw) {
+    let s = String(raw || '').replace(/[\s,，]/g, '')
+    if (!s) return ''
+    for (const p of PROVINCE_PREFIX) {
+      if (!s.startsWith(p)) continue
+      const rest = s.slice(p.length).replace(/^(省|市|壮族自治区|回族自治区|维吾尔自治区|自治区)/, '')
+      if (rest.length >= 2) { s = rest; break }
+    }
+    s = s.replace(/(特别行政区|自治州|地区|市|盟|县)$/, '')
+    return s
+  }
+
+  /** 按城市名查经纬度；优先国内、名字完全对得上的结果 */
+  async function geocodeCity(name, timeoutMs) {
+    const j = await httpJson(
+      `https://geocoding-api.open-meteo.com/v1/search?count=5&language=zh&format=json&name=${encodeURIComponent(name)}`,
+      timeoutMs
+    )
+    const rows = Array.isArray(j?.results) ? j.results : []
+    if (!rows.length) return null
+    const cn = rows.filter((r) => String(r.country_code || '').toUpperCase() === 'CN')
+    const pool = cn.length ? cn : rows
+    const want = name.replace(/市$/, '')
+    const scored = pool.map((r) => {
+      const nm = String(r.name || '')
+      let sc = 0
+      if (nm === name) sc += 6
+      else if (nm.replace(/市$/, '') === want) sc += 5
+      else if (nm.includes(want)) sc += 2
+      if (['PPLC', 'PPLA', 'PPLA2'].includes(String(r.feature_code || ''))) sc += 2
+      return { r, sc }
+    }).sort((a, b) => b.sc - a.sc)
+    const hit = scored[0]?.r
+    if (!hit || hit.latitude == null || hit.longitude == null) return null
+    return hit
+  }
+
+  /** 反查中文城市名（只用于显示；失败就沿用 IP 库给的名字） */
+  async function reverseCity(lat, lon, timeoutMs) {
+    try {
+      const j = await httpJson(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=zh`,
+        timeoutMs
+      )
+      const city = String(j?.city || j?.locality || '').trim()
+      const province = String(j?.principalSubdivision || '').trim()
+      if (city) return { city, region: province }
+    } catch {}
+    return null
+  }
+
   function readLocCache() {
     if (locCache) return locCache
     const raw = readJson(LOC_FILE)
-    if (raw && sameLocalDay(raw.ts) && Number.isFinite(Number(raw.lat)) && Number.isFinite(Number(raw.lon))) {
+    // 老缓存（没有 provider 字段）一律作废：那是没做城市反查的旧结果
+    if (raw && raw.provider && sameLocalDay(raw.ts) && Number.isFinite(Number(raw.lat)) && Number.isFinite(Number(raw.lon))) {
       locCache = {
         ts: Number(raw.ts), lat: Number(raw.lat), lon: Number(raw.lon),
-        city: raw.city || '', region: raw.region || '', country: raw.country || ''
+        city: raw.city || '', region: raw.region || '', country: raw.country || '',
+        provider: raw.provider || ''
       }
     }
     return locCache
@@ -909,53 +970,75 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
     try { writeJson(LOC_FILE, { version: 1, ...loc }) } catch {}
   }
 
-  /** 定位：配置里填了城市就走地理编码，否则按 IP 自动定位（结果按天落盘） */
+  /** 定位：填了城市就按城市查（手动优先），留空才按 IP 自动定位（结果按天落盘） */
   async function locate(cfgw) {
-    const city = String(cfgw.city || '').trim()
-    if (city) {
-      const j = await httpJson(
-        `https://geocoding-api.open-meteo.com/v1/search?count=1&language=zh&format=json&name=${encodeURIComponent(city)}`,
-        cfgw.timeoutMs
-      )
-      const hit = j?.results?.[0]
-      if (hit && hit.latitude != null && hit.longitude != null) {
+    const rawCity = String(cfgw.city || '').trim()
+    if (rawCity) {
+      // 手动优先：支持「合肥」「合肥市」「安徽合肥」「安徽省合肥市」
+      const name = normalizeCityName(rawCity)
+      let hit = null
+      try { hit = await geocodeCity(name, cfgw.timeoutMs) } catch {}
+      if (!hit) {
+        // 退一步用原始输入再试一次（万一「安徽合肥」本身就能被地名库识别）
+        try { hit = await geocodeCity(rawCity, cfgw.timeoutMs) } catch {}
+      }
+      if (hit) {
         return {
-          ts: Date.now(), lat: Number(hit.latitude), lon: Number(hit.longitude),
-          city: hit.name || city, region: hit.admin1 || '', country: hit.country || ''
+          ts: Date.now(),
+          lat: Number(hit.latitude),
+          lon: Number(hit.longitude),
+          // 显示名用用户填的规范名（「合肥」而不是地名库的「合肥市」）
+          city: name || String(hit.name || rawCity),
+          region: hit.admin1 || '',
+          country: hit.country || '中国',
+          source: 'manual',
+          provider: 'open-meteo-geocoding'
         }
       }
+      fileLog(`天气：手动城市「${rawCity}」没查到坐标，本次不带天气（不影响弹窗）`)
       return null
     }
 
     const cached = readLocCache()
-    if (cached) return cached
+    if (cached) return { ...cached, source: 'ip', provider: cached.provider || 'ip-api.com' }
 
     const providers = [
-      async () => {
+      { name: 'ip-api.com', fn: async () => {
         const j = await httpJson('http://ip-api.com/json/?lang=zh-CN&fields=status,country,regionName,city,lat,lon', cfgw.timeoutMs)
         if (j?.status === 'success' && j.lat != null && j.lon != null) {
           return { lat: Number(j.lat), lon: Number(j.lon), city: j.city || '', region: j.regionName || '', country: j.country || '' }
         }
-      },
-      async () => {
+      } },
+      { name: 'ipapi.co', fn: async () => {
         const j = await httpJson('https://ipapi.co/json/', cfgw.timeoutMs)
         if (j?.latitude != null && j?.longitude != null) {
           return { lat: Number(j.latitude), lon: Number(j.longitude), city: j.city || '', region: j.region || '', country: j.country_name || '' }
         }
-      },
-      async () => {
+      } },
+      { name: 'ipinfo.io', fn: async () => {
         const j = await httpJson('https://ipinfo.io/json', cfgw.timeoutMs)
         const loc = String(j?.loc || '').split(',')
         if (loc.length === 2 && Number.isFinite(Number(loc[0])) && Number.isFinite(Number(loc[1]))) {
           return { lat: Number(loc[0]), lon: Number(loc[1]), city: j.city || '', region: j.region || '', country: j.country || '' }
         }
-      }
+      } }
     ]
 
-    for (const fn of providers) {
+    for (const p of providers) {
       try {
-        const r = await fn()
-        if (r) return { ts: Date.now(), ...r }
+        const r = await p.fn()
+        if (!r) continue
+        // IP 库给的 city 常是街道/园区（如「金融街」），反查一次换成正经的地级市名
+        const rev = await reverseCity(r.lat, r.lon, cfgw.timeoutMs)
+        return {
+          ts: Date.now(),
+          ...r,
+          ipCity: r.city,
+          city: rev?.city || r.city,
+          region: rev?.region || r.region,
+          source: 'ip',
+          provider: p.name
+        }
       } catch {}
     }
     return null
@@ -1024,8 +1107,19 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
       weather: data,
       asset: data?.kind ? assetFor(data.kind) : '',
       cityOverride: cfg.weather?.city || '',
-      locate: loc ? { city: loc.city, region: loc.region, country: loc.country, lat: loc.lat, lon: loc.lon } : null
+      locate: loc ? {
+        city: loc.city, region: loc.region, country: loc.country, lat: loc.lat, lon: loc.lon,
+        source: loc.source || 'cache', provider: loc.provider || ''
+      } : null
     }
+  }
+
+  /** 诊断用：只解析城市名 → 经纬度，不查天气、不发通知 */
+  async function geoProbe(rawCity, timeoutMs) {
+    const raw = String(rawCity || cfg.weather?.city || '').trim()
+    const name = normalizeCityName(raw)
+    const loc = await locate({ ...(cfg.weather || DEFAULT_CONFIG.weather), city: raw, timeoutMs: timeoutMs || 8000 })
+    return { input: raw, normalized: name, locate: loc }
   }
 
   // ── 语音广播：异步、可打断、只保留最新一条 ──────────────────────
@@ -1257,11 +1351,19 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
   }
 
   function setConfig(patch) {
+    const prevWeather = cfg.weather || {}
     const next = normalizeConfig(patch?.config && typeof patch.config === 'object' ? patch.config : patch, cfg)
     cfg = next
     try { writeJson(CONFIG_FILE, cfg) } catch (e) {
       fileLog(`⚠️ 通知配置写入失败：${e?.message || e}`)
       return { ok: false, error: `配置写入失败：${e?.message || e}`, config: clone(cfg) }
+    }
+    // 天气相关改了就立刻作废缓存，不用等 10 分钟，也不用重启服务
+    const nw = cfg.weather || {}
+    if (nw.city !== prevWeather.city || nw.enabled !== prevWeather.enabled) {
+      weatherCache = null
+      weatherFailTs = 0
+      locCache = null
     }
     fileLog('通知配置已更新（立即生效）')
     return { ok: true, config: clone(cfg) }
@@ -1339,7 +1441,7 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
 
   return {
     start, stop, getConfig, setConfig, test, fire, resolveLevel, markSeen, recentLog, weatherProbe,
-    ensureIdentityOnce, resolveOpenUrl, speak, previewSpeech, probeVoices, voiceInfo,
+    ensureIdentityOnce, resolveOpenUrl, speak, previewSpeech, probeVoices, voiceInfo, geoProbe,
     files: { config: CONFIG_FILE, seen: SEEN_FILE, log: LOG_FILE, weatherLoc: LOC_FILE, identityLink: IDENTITY_LINK }
   }
 }
@@ -1363,6 +1465,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(SELF)) {
     })
   } else if (action === 'weather') {
     svc.weatherProbe().then((r) => {
+      console.log(JSON.stringify(r, null, 2))
+      process.exit(0)
+    })
+  } else if (action === 'geo') {
+    // 排查用：只解析城市名 → 经纬度，不查天气、不发通知
+    svc.geoProbe(process.argv.slice(3).join(' ')).then((r) => {
       console.log(JSON.stringify(r, null, 2))
       process.exit(0)
     })
