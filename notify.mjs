@@ -450,12 +450,13 @@ if ($shown) { exit 0 } else { exit 2 }
 `
 }
 
-function spawnPowerShell(script, { awaitMs = 0, killMs = 120000, onExit = null } = {}) {
+function spawnPowerShell(script, { awaitMs = 0, killMs = 120000, onExit = null, onSpawn = null } = {}) {
   const encoded = Buffer.from(script, 'utf16le').toString('base64')
   const child = spawn(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
   })
+  onSpawn?.(child)
   let stdout = ''
   let stderr = ''
   child.stdout?.on('data', (d) => { stdout += String(d) })
@@ -469,7 +470,7 @@ function spawnPowerShell(script, { awaitMs = 0, killMs = 120000, onExit = null }
 
     child.on('close', (code) => {
       clearTimeout(killTimer)
-      onExit?.(code, (stderr || '').slice(0, 400))
+      onExit?.(code, (stderr || '').slice(0, 400), child)
       finish({ ok: code === 0, code, stdout: stdout.slice(0, 400), stderr: stderr.slice(0, 400) })
     })
     child.on('error', (e) => {
@@ -740,6 +741,9 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
   let speechSeq = 0              // 播报序号：被替换掉的旧进程不写日志
   let voicePending = null
   let voiceState = { checked: false, ok: false, voices: [], chinese: [], error: '' }
+  // 正在响提示音/等待下一轮重复的通知进程（PowerShell）；点任意按钮时全部强杀
+  const soundProcs = new Set()
+  const soundCancelled = new WeakSet()   // 被「点按钮」主动停掉的进程：退出时不记失败
 
   function fileLog(line) {
     const text = `[${new Date().toLocaleString('zh-CN', { hour12: false })}] ${line}`
@@ -1155,11 +1159,19 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
     return voicePending
   }
 
-  /** 打断上一条播报（队列上限 1：不留积压） */
-  function stopSpeech() {
-    if (!speechProc) return
-    try { speechProc.kill() } catch {}
+  /** 立刻打断当前播报（强杀进程；repeat 循环也一起结束）。没在播时是安全的空操作 */
+  function stopSpeech(reason = '') {
+    if (!speechProc) {
+      speechSeq++             // 让可能还在收尾的旧进程不再写日志
+      return { stopped: false }
+    }
+    const child = speechProc
     speechProc = null
+    speechSeq++               // 标记为「主动取消」，close 回调不再记失败日志
+    try { child.kill() } catch {}
+    try { child.stdout?.destroy() } catch {}
+    fileLog(`⏹ 语音播报已中断${reason ? `（${reason}）` : ''}`)
+    return { stopped: true }
   }
 
   /** 播报一段文本：立即返回，不阻塞调用方 */
@@ -1269,6 +1281,34 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
     return { title: title.slice(0, 120), body: body.join('\n'), itemId: String(item?.id || '') }
   }
 
+  // ── 提示音：随时可被「点按钮」打断 ──────────────────────────────
+  /**
+   * 立刻停掉所有正在响的提示音。
+   * 提示音是 Toast 那条 PowerShell 进程里放的（SoundPlayer.PlayLooping + repeat 轮次循环），
+   * 所以直接强杀这些进程即可：声音立即断，后续 repeat 轮次也不会再响。
+   * 没有在响的时候是安全空操作（返回 stopped:false，不报错）。
+   */
+  function stopSound(reason = '') {
+    const procs = [...soundProcs]
+    soundProcs.clear()
+    for (const child of procs) {
+      soundCancelled.add(child)   // 主动停止：退出回调不再记「通知失败」
+      try { child.kill() } catch {}
+      try { child.stdout?.destroy() } catch {}
+      try { child.stderr?.destroy() } catch {}
+    }
+    if (procs.length) fileLog(`⏹ 提示音已停止${reason ? `（${reason}）` : ''}`)
+    return { stopped: procs.length > 0, count: procs.length }
+  }
+
+  function trackSoundProc(child, lc) {
+    // 弹窗模式不杀（会把正在显示的对话框一起关掉）；不出声的通知也没必要管
+    if (!child || lc.mode === 'dialog' || lc.sound === 'off') return
+    soundProcs.add(child)
+    child.on('close', () => soundProcs.delete(child))
+    child.on('error', () => soundProcs.delete(child))
+  }
+
   /** 真正发送：先确认 Toast 身份，再取天气（失败则不带），最后拉起 PowerShell */
   async function deliver(level, lc, payload, reason, opts = {}) {
     let effLc = lc
@@ -1292,7 +1332,9 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
     const r = await spawnPowerShell(script, {
       awaitMs: opts.awaitMs || 0,
       killMs,
-      onExit: opts.awaitMs ? null : (code, err) => {
+      onSpawn: (child) => trackSoundProc(child, effLc),
+      onExit: opts.awaitMs ? null : (code, err, child) => {
+        if (soundCancelled.has(child)) { fileLog(`提示音已停止（${label}）`); return }
         if (code === 0) fileLog(`通知已送出（${label}）`)
         else fileLog(`⚠️ 通知失败（${label}）code=${code} ${err || ''}`)
       }
@@ -1441,7 +1483,7 @@ export function createNotifyService({ stateDir, boxFile, readDoc, log = () => {}
 
   return {
     start, stop, getConfig, setConfig, test, fire, resolveLevel, markSeen, recentLog, weatherProbe,
-    ensureIdentityOnce, resolveOpenUrl, speak, previewSpeech, probeVoices, voiceInfo, geoProbe,
+    ensureIdentityOnce, resolveOpenUrl, speak, stopSpeech, stopSound, previewSpeech, probeVoices, voiceInfo, geoProbe,
     files: { config: CONFIG_FILE, seen: SEEN_FILE, log: LOG_FILE, weatherLoc: LOC_FILE, identityLink: IDENTITY_LINK }
   }
 }

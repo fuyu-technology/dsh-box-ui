@@ -56,6 +56,10 @@ async function main() {
   const item = (u.searchParams.get('item') || '').trim()
   if (!/^[A-Za-z0-9_-]{1,32}$/.test(item)) { logLine(`item 非法：${raw}`); return }
 
+  // 点了通知上的按钮 → 立刻掐掉还在响的提示音（没在响就是空操作，失败也忽略）
+  const stop = await postJson('/api/notify/sound/stop', {})
+  logLine(`sound/stop http=${stop.status}${stop.body ? ' ' + stop.body.slice(0, 80) : ''}`)
+
   if (action === 'status') {
     const to = (u.searchParams.get('to') || '').toLowerCase()
     const receipt = RECEIPT[to]

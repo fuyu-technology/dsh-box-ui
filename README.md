@@ -109,6 +109,26 @@ Toast 底部有 **4 个按钮**：`受理` / `处理中` / `已完成` / `去回
 </actions>
 ```
 
+### 点任意按钮，提示音立刻停
+
+循环音（`urgent` 的 `loop`）和重复轮次（`repeatTimes`）都跑在**同一条展示通知的 PowerShell 进程**里（`SoundPlayer.PlayLooping` + 轮次循环）。所以「停音」就是**强杀这条进程**：声音立刻断，剩下的 `repeatTimes` 轮次一并取消，不会停下来又响下一轮。
+
+三条触发路径都覆盖：
+
+| 触发点 | 走的链路 |
+|---|---|
+| Toast 上的 `受理` / `处理中` / `已完成` / `去回复` | `dshbox://` → `notify-action.mjs` → `POST /api/notify/sound/stop` |
+| 独立页面（`http://127.0.0.1:3200/`）任意点击 | 页面在 `document` 上用**捕获阶段**监听 click → 同上接口 |
+| DSH 面板（设置 → 需求箱）任意点击 | `client.js` 同样在 `document` 捕获 click → `/dsh-box/notify/sound/stop` → 转发到 box-server |
+
+细节：
+
+- 接口是 `POST /api/notify/sound/stop`，返回 `{ ok:true, stopped:true|false, count:N }`
+- **没在响的时候**返回 `stopped:false`，不报错、不写日志、无副作用
+- 被主动停掉的进程，日志记「提示音已停止」，**不会**误记成「通知失败」
+- 弹窗模式（`mode: dialog`）不参与强杀，避免把正在显示的对话框一起关掉；不出声（`sound: off`）的通知也不登记
+- 语音播报是另一条独立进程，这个动作**不会**影响它
+
 ### 私有协议 dshbox://（注册了什么、怎么卸载）
 
 首次运行（或 `notify.mjs identity`）会幂等写入 `HKCU`：

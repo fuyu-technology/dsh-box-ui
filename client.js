@@ -277,6 +277,22 @@ window.__ModuleLoader__.load({
         return () => { if (timerRef.current) clearInterval(timerRef.current) }
       }, [load, loadNotify])
 
+      // 点面板上任意一处（按钮/卡片/输入框）都立刻掐掉正在响的提示音；
+      // 没在响时后端是空操作，失败也静默忽略，不影响点击本身的逻辑
+      useEffect(() => {
+        const stopSound = () => {
+          try {
+            fetchJson('/notify/sound/stop', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: '{}'
+            }).catch(() => {})
+          } catch {}
+        }
+        document.addEventListener('click', stopSound, true)
+        return () => document.removeEventListener('click', stopSound, true)
+      }, [])
+
       const act = useCallback(async (fn, label) => {
         setBusy(true)
         try {

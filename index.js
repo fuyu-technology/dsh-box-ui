@@ -227,6 +227,16 @@ function apply(ctx) {
     }
   }))
 
+  // 分级通知：停掉正在响的提示音（面板任意按钮点击都会打这里，没在响就是空操作）
+  disposers.push(webServer.register({
+    kind: 'exact',
+    path: `${API_BASE}/notify/sound/stop`,
+    handler: async (req, res) => {
+      const r = await forward('POST', '/api/notify/sound/stop', {})
+      sendJson(res, r.status, r.json)
+    }
+  }))
+
   // 分级通知：最近日志
   disposers.push(webServer.register({
     kind: 'exact',

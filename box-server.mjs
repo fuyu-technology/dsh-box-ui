@@ -137,6 +137,11 @@ const server = http.createServer(async (req, res) => {
     NOTIFY.probeVoices(!!url.searchParams.get('force')).then((v) => send(res, 200, { ok: true, ...v }))
     return
   }
+  // 停提示音：页面/面板任意按钮点击都会打这里；没在响就是空操作
+  if (req.method === 'POST' && p === '/api/notify/sound/stop') {
+    send(res, 200, { ok: true, ...NOTIFY.stopSound('点击按钮') })
+    return
+  }
   if (req.method === 'GET' && p === '/api/notify/log') {
     send(res, 200, { ok: true, log: NOTIFY.recentLog(Number(url.searchParams.get('lines')) || 40) })
     return
@@ -390,6 +395,13 @@ async function api(path, method, body){
   if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
   return j;
 }
+// 点页面上任意一处（按钮/条目/输入框）都立刻掐掉正在响的提示音；没在响时服务端是空操作
+document.addEventListener('click', function(){
+  try{
+    fetch('/api/notify/sound/stop', { method:'POST', keepalive:true,
+      headers:{ 'x-box-token': TOKEN, 'content-type':'application/json' }, body:'{}' }).catch(function(){});
+  }catch(e){}
+}, true);
 function paintFilter(){
   document.querySelectorAll('#bar button').forEach(function(b){ b.classList.toggle('active', b.dataset.f === filter); });
 }
