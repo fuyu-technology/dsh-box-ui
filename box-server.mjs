@@ -180,6 +180,12 @@ const server = http.createServer(async (req, res) => {
     const doc = readDoc()
     const idx = doc.items.findIndex((i) => i.id === body.id)
     if (idx < 0) { send(res, 404, { ok: false, error: '没找到这条留言' }); return }
+    const target = doc.items[idx]
+    // 现场求助（sos）只有在回执=已处理(done) 之后才允许删除
+    if (target.kind === 'sos' && target.receipt !== 'done') {
+      send(res, 409, { ok: false, error: '现场求助（sos）条目只有在回执改为「已处理」后才能删除' })
+      return
+    }
     doc.items.splice(idx, 1)
     writeDoc(doc)
     send(res, 200, { ok: true })
@@ -216,17 +222,20 @@ const server = http.createServer(async (req, res) => {
     } catch {}
 
     // 可选按状态清：body.receipt 为空则全清
+    // 现场求助（sos）例外：只有回执=已处理(done) 才随清空删除；其它 kind 维持原语义。
+    const removable = (i) => (i.kind !== 'sos' || i.receipt === 'done')
     const only = String(body.receipt || '').trim()
     if (only) {
-      doc.items = doc.items.filter((i) => i.receipt !== only)
+      doc.items = doc.items.filter((i) => !(i.receipt === only && removable(i)))
     } else {
-      doc.items = []
+      doc.items = doc.items.filter((i) => !removable(i))
     }
     writeDoc(doc)
     send(res, 200, {
       ok: true,
       removed: before - doc.items.length,
       remaining: doc.items.length,
+      skipped: doc.items.filter((i) => i.kind === 'sos' && i.receipt !== 'done').length,
       backup: backupPath ? path.basename(backupPath) : null
     })
     return
